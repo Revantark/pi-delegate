@@ -6,7 +6,7 @@ import {
   type AgentToolResult,
   type AgentToolUpdateCallback,
 } from "@earendil-works/pi-coding-agent";
-import { Type, type Static } from "@sinclair/typebox";
+import { Type, type Static } from "typebox";
 import { getAgent, listAgents, loadThreads, upsertThread } from "./agents.js";
 import { sanitizeThreadId, sanitizeAgentName } from "./sanitize.js";
 import {
@@ -136,7 +136,7 @@ export async function executeDelegateTool(
   }
 
   if (sessionId) {
-    const threads = loadThreads();
+    const threads = await loadThreads();
     const now = new Date().toISOString();
     const existing = threads[sessionId];
     await upsertThread({

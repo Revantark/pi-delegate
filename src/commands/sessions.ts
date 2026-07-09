@@ -2,18 +2,19 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
   getAgent,
   loadThreads,
-  saveThreads,
   removeThread,
+  type ThreadInfo,
 } from "../agents.js";
+import { modifyFile } from "../store.js";
 import { sanitizeAgentName, sanitizeThreadId } from "../sanitize.js";
 import { deleteSessionsById, deleteSessionsByPrefix } from "../fsutil.js";
-import { SESSION_DIR } from "../paths.js";
+import { SESSION_DIR, THREADS_PATH } from "../paths.js";
 
 export async function handleThreads(
   agentFilter: string | null,
   ctx: ExtensionCommandContext,
 ): Promise<void> {
-  const threads = loadThreads();
+  const threads = await loadThreads();
   const entries = Object.values(threads).filter(
     (t) => !agentFilter || t.agent === agentFilter,
   );
@@ -60,7 +61,7 @@ export async function handlePrune(
   const all = /(?:^|\s)--all(?:\s|$)/.test(args);
   const olderMatch = args.match(/--older\s+(\d+)/);
   const olderDays = olderMatch ? parseInt(olderMatch[1], 10) : 7;
-  const threads = loadThreads();
+  const threads = await loadThreads();
   const now = Date.now();
   let pruned = 0;
   for (const sid of Object.keys(threads)) {
@@ -92,15 +93,16 @@ export async function handleReset(
     return;
   }
   const removed = deleteSessionsByPrefix(`delegate-${agent.name}-`, SESSION_DIR);
-  const threads = loadThreads();
   let dropped = 0;
-  for (const sid of Object.keys(threads)) {
-    if (threads[sid].agent === agent.name) {
-      delete threads[sid];
-      dropped++;
+  await modifyFile<Record<string, ThreadInfo>>(THREADS_PATH, (threads) => {
+    for (const sid of Object.keys(threads)) {
+      if (threads[sid].agent === agent.name) {
+        delete threads[sid];
+        dropped++;
+      }
     }
-  }
-  if (dropped) await saveThreads(threads);
+    return threads;
+  });
   ctx.ui.notify(
     `Cleared ${removed} session file(s) and ${dropped} thread record(s) for "${name}"`,
     "info",

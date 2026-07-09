@@ -3,7 +3,22 @@ import { handleDelegateCommand } from "./commands/index.js";
 import { executeDelegateTool, delegateParamsSchema } from "./tool.js";
 import type { AutocompleteItem } from "./types.js";
 
+/** Widgets set by /delegate subcommands that should clear on the next prompt. */
+export const DELEGATE_WIDGET_KEYS = [
+  "delegate-list",
+  "delegate-threads",
+  "delegate-help",
+] as const;
+
 export default function (pi: ExtensionAPI) {
+  // Clear transient info widgets when the user starts a new turn so they don't
+  // stick to the bottom of the TUI forever.
+  pi.on("turn_start", (_event, ctx) => {
+    for (const key of DELEGATE_WIDGET_KEYS) {
+      ctx.ui.setWidget(key, undefined);
+    }
+  });
+
   pi.registerCommand("delegate", {
     description: "Manage delegate agents (add, remove, list, edit)",
     getArgumentCompletions: (prefix: string): AutocompleteItem[] => {

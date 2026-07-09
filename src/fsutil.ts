@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isSymlink } from "./store.js";
 
 /**
  * Read first ~4KB of a session file, parse header, check predicate.
@@ -32,10 +33,12 @@ function deleteSessions(
   predicate: (id: string) => boolean,
 ): number {
   if (!fs.existsSync(sessionDir)) return 0;
+  if (isSymlink(sessionDir)) return 0; // refuse to walk a symlinked root
   let removed = 0;
   const walk = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
+      if (isSymlink(full)) continue; // skip symlinked entries
       if (entry.isDirectory()) {
         walk(full);
       } else if (sessionFileMatches(full, predicate)) {

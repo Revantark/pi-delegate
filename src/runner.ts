@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import * as path from "node:path";
+import { realpathSync } from "node:fs";
 import type { Message } from "@earendil-works/pi-ai";
 import type { AgentConfig } from "./agents.js";
 import type { DelegateResult } from "./types.js";
 import { getFinalOutput, getTextContent } from "./format.js";
-import { SESSION_DIR } from "./paths.js";
+import { SESSION_DIR, HOME } from "./paths.js";
 import { resolveExtensionPath } from "./extensions.js";
+import { isSymlink, ensureSafeDir } from "./store.js";
 
 function getPiInvocation(
   args: string[],
@@ -30,6 +32,18 @@ export async function runDelegate(
   signal: AbortSignal | undefined,
   onUpdate: ((partial: DelegateResult) => void) | undefined,
 ): Promise<DelegateResult> {
+  if (sessionId !== null) {
+    if (isSymlink(SESSION_DIR)) {
+      throw new Error(`Refusing to use symlinked session directory: ${SESSION_DIR}`);
+    }
+    ensureSafeDir(SESSION_DIR);
+    // Containment: resolved path must stay under the user's pi home.
+    const homeReal = realpathSync(HOME);
+    const resolved = realpathSync(SESSION_DIR);
+    if (!resolved.startsWith(homeReal)) {
+      throw new Error(`Session directory escapes allowed root: ${resolved}`);
+    }
+  }
   const args: string[] = ["--mode", "json", "-p"];
 
   if (sessionId === null) {
