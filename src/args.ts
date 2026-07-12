@@ -121,6 +121,7 @@ export function parseAddArgs(
   extensions?: string[];
   noAutoExtensions?: boolean;
   session?: boolean;
+  timeoutMs?: number;
 } | null {
   const { positional, opts, flags } = parseFlagTokens(args);
   if (positional.length === 0) return null;
@@ -140,6 +141,14 @@ export function parseAddArgs(
     .map((t) => t.trim())
     .filter(Boolean);
   const description = opts.get("description");
+  const timeoutRaw = opts.get("timeout");
+  const timeoutMs = timeoutRaw !== undefined ? Number(timeoutRaw) : undefined;
+  if (
+    timeoutRaw !== undefined &&
+    (timeoutMs === undefined || !Number.isInteger(timeoutMs) || timeoutMs <= 0)
+  ) {
+    return null;
+  }
 
   return {
     name,
@@ -149,12 +158,13 @@ export function parseAddArgs(
     extensions: extensions && extensions.length > 0 ? extensions : undefined,
     noAutoExtensions: flags.has("--no-extensions") || undefined,
     session: flags.has("--no-session") ? false : undefined,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   };
 }
 
 export function parseInstallArgs(
   args: string,
-): { source: string; agent: string; noAutoExtensions?: boolean } | null {
+): { source: string; agent: string; noAutoExtensions?: boolean; yes?: boolean } | null {
   const { positional, opts, flags } = parseFlagTokens(args);
   if (positional.length === 0) return null;
 
@@ -165,5 +175,7 @@ export function parseInstallArgs(
     source: positional[0],
     agent,
     noAutoExtensions: flags.has("--no-extensions") || undefined,
+    // `--yes` opts out of the interactive install confirmation (issue 22).
+    yes: opts.has("yes") || flags.has("--yes") || undefined,
   };
 }

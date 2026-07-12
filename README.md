@@ -41,9 +41,10 @@ extensions directory) and point at `index.ts`:
 }
 ```
 
-No build step needed — Pi loads `index.ts` directly. Peer deps:
-`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `typebox`,
-`@types/node`.
+No build step needed — Pi loads `index.ts` directly. Peer deps
+(resolved by Pi itself): `@earendil-works/pi-ai`,
+`@earendil-works/pi-coding-agent`, `typebox`. `@types/node` is a dev-only
+dependency.
 
 ---
 
@@ -113,7 +114,7 @@ Invalid JSON cancels; missing `name`/`model` is rejected.
 ### Other config commands
 
 ```text
-/delegate remove <name>        # delete agent entirely (keeps nothing)
+/delegate remove <name>        # unregister agent (preserves transcripts)
 /delegate list                 # show all agents + limits
 /delegate install <src> --agent <name> [--no-extensions]
 /delegate update  <src> --agent <name>
@@ -124,6 +125,16 @@ Invalid JSON cancels; missing `name`/`model` is rejected.
 appends it to the agent's `extensions` list. `update` re-pulls; `uninstall`
 removes it from the list.
 
+> **Install confirmation (issue 22):** installing an extension is a high-impact
+> operation — npm packages can run lifecycle scripts and git repos contain
+> arbitrary TypeScript that executes inside delegated children. In interactive
+> (TUI/RPC) mode `install` shows a confirmation dialog naming the source and
+destination; pass `--yes` to install non-interactively. In non-interactive
+> (JSON/print) mode `install` refuses without `--yes`.
+>
+> **Missing extensions fail (issue 23):** if a configured extension can't be
+> resolved on disk, delegation throws instead of silently running without it.
+
 ---
 
 ## Command Reference
@@ -131,10 +142,10 @@ removes it from the list.
 | Subcommand | Usage | What it does |
 |------------|-------|--------------|
 | `add` | `add <name> --model <m> [flags]` | Register an agent. |
-| `remove` | `remove <name>` | Delete agent config. |
+| `remove` | `remove <name>` `[--purge]` | Unregister agent. Default keeps thread transcripts; `--purge` (with confirmation) deletes session files + thread records too. |
 | `list` | `list` | Show registered agents. |
 | `edit` | `edit <name>` | Edit config in JSON editor. |
-| `install` | `install <source> --agent <name> [--no-extensions]` | Install extension source for an agent. |
+| `install` | `install <source> --agent <name> [--no-extensions] [--yes]` | Install extension source for an agent. |
 | `update` | `update <source> --agent <name>` | Update installed extension source. |
 | `uninstall` | `uninstall <source> --agent <name>` | Detach extension source. |
 | `reset` | `reset <name>` | Wipe **session files + thread records** for an agent (keeps the registration). |
@@ -143,8 +154,9 @@ removes it from the list.
 | `prune` | `prune [--older <days>\|--all]` | Delete old/all threads. Default: older than 7 days. |
 | `help` | `help` | Print usage text. |
 
-> **`reset` vs `remove`**: `remove` deletes the agent; `reset` keeps the agent
-> but erases its accumulated memory/transcripts. Use `reset` to give an agent a
+> **`reset` vs `remove`**: `remove` unregisters the agent but keeps its transcripts by
+> default; `remove --purge` deletes the agent and its data. `reset` keeps the agent
+> registration and only wipes memory/transcripts. Use `reset` to give an agent a
 > clean slate without re-registering it.
 
 ---
@@ -205,7 +217,7 @@ Each child gets its **own** `--model`, a `--tools` allowlist, and an explicit
 
 ## State Files
 
-All under `~/.pi/`:
+All under `~/.pi/` (Pi's config directory — see `State Files` for redirects):
 
 | Path | Purpose |
 |------|---------|
@@ -213,6 +225,11 @@ All under `~/.pi/`:
 | `delegate-threads.json` | Active threads: `{ sessionId: { agent, threadId, created, lastUsed, ... } }`. |
 | `delegate-sessions/` | Child session transcripts. |
 | `delegate-exts/` | Installed extension sources for agents. |
+
+> **Configurable root:** all paths are derived from Pi's config directory name
+> (`CONFIG_DIR_NAME`, default `.pi`) rather than hardcoded. Set `PI_DELEGATE_HOME`
+> to relocate the entire delegate state tree (agents, threads, sessions,
+> extensions) for rebranded/custom deployments or tests.
 
 ---
 
@@ -246,7 +263,9 @@ the `delegate` tool on its own.
 - **Agents aren't auto-discovered.** The LLM only knows agent names after it
   (or you) runs `/delegate list`. If it guesses a wrong name, the error message
   lists the valid ones and it retries.
-- **`reset` ≠ `remove`.** `reset` clears memory; `remove` deletes the agent.
+- **`remove`** unregisters an agent. By default it preserves existing thread
+  transcripts (see them via `threads`, delete via `reset`). Pass `--purge` to also
+  delete session files and thread records after confirmation. Never purges silently.
 - **Ephemeral agents ignore `threadId`.** Don't expect memory from a
   `--no-session` agent.
 - **Locks serialize per thread.** Two delegations to the *same* thread run one

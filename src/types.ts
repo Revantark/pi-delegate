@@ -20,6 +20,14 @@ export interface DelegateResult {
   usage: UsageStats;
   stopReason?: string;
   errorMessage?: string;
+  /** stderr exceeded the cap and was truncated (memory safety). */
+  stderrTruncated?: boolean;
+  /** messages array exceeded the cap; oldest entries were dropped. */
+  messagesTruncated?: boolean;
+  /** final assistant output exceeded Pi's tool-result display cap. */
+  outputTruncated?: boolean;
+  /** Path to a file containing full final output. */
+  fullOutputPath?: string;
   liveLog?: string;
 }
 
@@ -28,7 +36,6 @@ export interface AutocompleteItem {
   label: string;
 }
 
-/** Lightweight details attached to the delegate tool result. */
 export interface DelegateToolDetails {
   agent: string;
   model: string;
@@ -39,4 +46,9 @@ export interface DelegateToolDetails {
   usage: UsageStats;
   threadId: string | null;
   sessionId: string | null;
+  outputTruncated?: boolean;
+  messagesTruncated?: boolean;
+  stderrTruncated?: boolean;
+  /** Path to a file containing the full, untruncated output. */
+  fullOutputPath?: string;
 }

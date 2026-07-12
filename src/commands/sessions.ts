@@ -3,12 +3,19 @@ import {
   getAgent,
   loadThreads,
   removeThread,
-  type ThreadInfo,
 } from "../agents.js";
-import { modifyFile } from "../store.js";
 import { sanitizeAgentName, sanitizeThreadId } from "../sanitize.js";
-import { deleteSessionsById, deleteSessionsByPrefix } from "../fsutil.js";
-import { SESSION_DIR, THREADS_PATH } from "../paths.js";
+import {
+  deleteSessionsById,
+  collectSessionIds,
+} from "../fsutil.js";
+import { tryWithSessionFileLock } from "../locks.js";
+import { SESSION_DIR } from "../paths.js";
+
+/** How long cleanup waits for an active session lock before skipping it. */
+const CLEANUP_LOCK_WAIT_MS = 1000;
+/** How long `close` waits for a (likely finishing) session before skipping. */
+const CLOSE_LOCK_WAIT_MS = 2000;
 
 export async function handleThreads(
   agentFilter: string | null,
@@ -29,8 +36,18 @@ export async function handleThreads(
   }
   const lines = entries
     .sort((a, b) => b.lastUsed.localeCompare(a.lastUsed))
-    .map((t) => `\u2022 ${t.agent} / ${t.threadId}  (last ${t.lastUsed})`);
-  ctx.ui.setWidget("delegate-threads", ["Delegate threads:", ...lines]);
+    .map((t) => {
+      const display = t.userThreadId && t.userThreadId !== t.threadId
+        ? `${t.userThreadId} (${t.threadId})`
+        : t.threadId;
+      return `\u2022 ${t.agent} / ${display}  (last ${t.lastUsed})`;
+    });
+  const output = ["Delegate threads:", ...lines].join("\n");
+  if (ctx.mode === "tui") {
+    ctx.ui.setWidget("delegate-threads", ["Delegate threads:", ...lines]);
+  } else {
+    ctx.ui.notify(output, "info");
+  }
 }
 
 export async function handleClose(
@@ -44,13 +61,35 @@ export async function handleClose(
   }
   const safeAgent = sanitizeAgentName(agent);
   const sessionId = `delegate-${safeAgent}-${sanitizeThreadId(thread)}`;
-  const removed = deleteSessionsById(sessionId, SESSION_DIR);
-  await removeThread(sessionId);
+
+  let removed = 0;
+  let skippedFiles = 0;
+  const ran = await tryWithSessionFileLock(
+    sessionId,
+    async () => {
+      const rep = deleteSessionsById(sessionId, SESSION_DIR);
+      removed = rep.removed;
+      skippedFiles = rep.skipped;
+      if (rep.skipped === 0) await removeThread(sessionId);
+    },
+    { waitMs: CLOSE_LOCK_WAIT_MS },
+  );
+
+  if (!ran) {
+    ctx.ui.notify(
+      `Session "${thread}" for ${agent} is active in another process; not closed.`,
+      "warning",
+    );
+    return;
+  }
+
   ctx.ui.notify(
     removed > 0
       ? `Closed thread "${thread}" for ${agent} (${removed} file(s) removed)`
-      : `No session files found for ${agent}/${thread}`,
-    "info",
+      : skippedFiles > 0
+        ? `Could not fully close thread "${thread}" for ${agent}; ${skippedFiles} file(s) skipped and thread record preserved.`
+        : `No session files found for ${agent}/${thread}`,
+    skippedFiles > 0 ? "warning" : "info",
   );
 }
 
@@ -64,17 +103,29 @@ export async function handlePrune(
   const threads = await loadThreads();
   const now = Date.now();
   let pruned = 0;
+  let skipped = 0;
+  let fileSkips = 0;
   for (const sid of Object.keys(threads)) {
     const t = threads[sid];
     const ageMs = now - new Date(t.lastUsed).getTime();
     if (all || ageMs > olderDays * 86400000) {
-      deleteSessionsById(t.sessionId, t.sessionDir);
-      await removeThread(sid);
-      pruned++;
+      const ran = await tryWithSessionFileLock(
+        t.sessionId,
+        async () => {
+          const rep = deleteSessionsById(t.sessionId, SESSION_DIR);
+          fileSkips += rep.skipped;
+          if (rep.skipped === 0) await removeThread(sid);
+        },
+        { waitMs: CLEANUP_LOCK_WAIT_MS },
+      );
+      if (ran) pruned++;
+      else skipped++;
     }
   }
+  const skippedNote = skipped > 0 ? `, skipped ${skipped} active` : "";
+  const fileSkipNote = fileSkips > 0 ? `, ${fileSkips} file(s) skipped` : "";
   ctx.ui.notify(
-    `Pruned ${pruned} thread(s)${all ? " (all)" : ` (unused > ${olderDays}d)`}`,
+    `Pruned ${pruned} thread(s)${all ? " (all)" : ` (unused > ${olderDays}d)`}${skippedNote}${fileSkipNote}`,
     "info",
   );
 }
@@ -92,19 +143,38 @@ export async function handleReset(
     ctx.ui.notify(`Agent "${name}" not found`, "warning");
     return;
   }
-  const removed = deleteSessionsByPrefix(`delegate-${agent.name}-`, SESSION_DIR);
+
+  const prefix = `delegate-${agent.name}-`;
+  const threads = await loadThreads();
+  const threadIds = Object.values(threads)
+    .filter((t) => t.agent === agent.name)
+    .map((t) => t.sessionId);
+  const diskIds = collectSessionIds(SESSION_DIR, (id) => id.startsWith(prefix));
+  const ids = Array.from(new Set([...diskIds, ...threadIds]));
+
+  let removed = 0;
   let dropped = 0;
-  await modifyFile<Record<string, ThreadInfo>>(THREADS_PATH, (threads) => {
-    for (const sid of Object.keys(threads)) {
-      if (threads[sid].agent === agent.name) {
-        delete threads[sid];
-        dropped++;
-      }
-    }
-    return threads;
-  });
+  let skipped = 0;
+  let fileSkips = 0;
+  for (const id of ids) {
+    const ran = await tryWithSessionFileLock(
+      id,
+      async () => {
+        const rep = deleteSessionsById(id, SESSION_DIR);
+        removed += rep.removed;
+        fileSkips += rep.skipped;
+        if (rep.skipped === 0) await removeThread(id);
+      },
+      { waitMs: CLEANUP_LOCK_WAIT_MS },
+    );
+    if (ran) dropped++;
+    else skipped++;
+  }
+
+  const skippedNote = skipped > 0 ? `, skipped ${skipped} active` : "";
+  const fileSkipNote = fileSkips > 0 ? `, ${fileSkips} file(s) skipped` : "";
   ctx.ui.notify(
-    `Cleared ${removed} session file(s) and ${dropped} thread record(s) for "${name}"`,
+    `Cleared ${removed} session file(s) and ${dropped} thread record(s) for "${name}"${skippedNote}${fileSkipNote}`,
     "info",
   );
 }

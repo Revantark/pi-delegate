@@ -15,7 +15,7 @@ import {
   isFailedResult,
   getResultOutput,
 } from "./format.js";
-import { withSessionLock } from "./locks.js";
+import { withSessionFileLock } from "./locks.js";
 import { runDelegate } from "./runner.js";
 import { SESSION_DIR } from "./paths.js";
 import type { DelegateToolDetails, UsageStats } from "./types.js";
@@ -127,7 +127,7 @@ export async function executeDelegateTool(
         : undefined,
     );
   const result = sessionId
-    ? await withSessionLock(sessionId, run)
+    ? await withSessionFileLock(sessionId, run)
     : await run();
 
   if (isFailedResult(result)) {
@@ -146,6 +146,7 @@ export async function executeDelegateTool(
       sessionDir: SESSION_DIR,
       created: existing?.created ?? now,
       lastUsed: now,
+      userThreadId: threadId && threadId.trim() ? threadId.trim() : undefined,
     });
   }
 
@@ -156,7 +157,19 @@ export async function executeDelegateTool(
   });
   let display = truncated.content;
   if (truncated.truncated) {
-    display += `\n[Output truncated: ${truncated.outputLines} of ${truncated.totalLines} lines.]`;
+    if (sessionId && result.fullOutputPath) {
+      display += `\n[Output truncated: ${truncated.outputLines} of ${truncated.totalLines} lines. ` +
+        `Full output remains in the delegated session transcript: ${result.fullOutputPath}]`;
+    } else if (result.fullOutputPath) {
+      display += `\n[Output truncated: ${truncated.outputLines} of ${truncated.totalLines} lines. ` +
+        `Full output written to: ${result.fullOutputPath}]`;
+    } else if (sessionId) {
+      display += `\n[Output truncated: ${truncated.outputLines} of ${truncated.totalLines} lines. ` +
+        `Full output remains in the delegated session transcript.]`;
+    } else {
+      display += `\n[Output truncated: ${truncated.outputLines} of ${truncated.totalLines} lines. ` +
+        `Full output written to: ${result.fullOutputPath ?? "temporary storage"}]`;
+    }
   }
 
   const usageLine = `\n\n[usage: ${formatUsageStats(result.usage, result.model)}]`;
@@ -165,7 +178,7 @@ export async function executeDelegateTool(
     ? `${display}${usageLine}\n\n[delegate thread: ${effectiveThreadId}]\n` +
       `Reuse this value as the "threadId" parameter on your next delegate ` +
       `call to continue this conversation.`
-    : `${display}${usageLine}`;
+    : `${display}${usageLine}${result.fullOutputPath ? `\n\n[full output: ${result.fullOutputPath}]` : ""}`;
 
   return {
     content: [{ type: "text", text: content }],
@@ -179,6 +192,10 @@ export async function executeDelegateTool(
       usage: result.usage,
       threadId: sessionId ? effectiveThreadId : null,
       sessionId,
+      outputTruncated: truncated.truncated,
+      messagesTruncated: result.messagesTruncated,
+      stderrTruncated: result.stderrTruncated,
+      fullOutputPath: result.fullOutputPath,
     },
   };
 }

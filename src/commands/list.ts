@@ -1,5 +1,6 @@
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { listAgents } from "../agents.js";
+import { formatAgentList } from "../format.js";
 
 export async function handleList(
   ctx: ExtensionCommandContext,
@@ -12,13 +13,12 @@ export async function handleList(
     );
     return;
   }
-  const lines = agents.map((a) => {
-    const tools = a.tools ? ` (${a.tools.join(", ")})` : " (all tools)";
-    const desc = a.description ? ` - ${a.description}` : "";
-    const ext = a.extensions ? ` [ext: ${a.extensions.join(", ")}]` : "";
-    const noAuto = a.noAutoExtensions ? " [no-auto-ext]" : "";
-    const sess = a.session === false ? " [ephemeral]" : " [session]";
-    return `\u2022 ${a.name}: ${a.model}${tools}${ext}${noAuto}${sess}${desc}`;
-  });
-  ctx.ui.setWidget("delegate-list", ["Registered agents:", ...lines]);
+  const output = formatAgentList(agents);
+  // Widgets are TUI-only; in json/print/rpc modes fall back to a notification
+  // so the command is not silently a no-op.
+  if (ctx.mode === "tui") {
+    ctx.ui.setWidget("delegate-list", output.split("\n"));
+  } else {
+    ctx.ui.notify(output, "info");
+  }
 }

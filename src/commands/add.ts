@@ -10,15 +10,16 @@ export async function handleAdd(
   const parsed = parseAddArgs(args);
   if (!parsed) {
     ctx.ui.notify(
-      'Usage: /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--description "desc"]',
+      'Usage: /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--description "desc"]',
       "error",
     );
     return;
   }
   try {
     sanitizeAgentName(parsed.name);
-  } catch (e: any) {
-    ctx.ui.notify(e.message, "error");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.ui.notify(message, "error");
     return;
   }
   await addAgent(
@@ -29,6 +30,7 @@ export async function handleAdd(
     parsed.extensions,
     parsed.noAutoExtensions,
     parsed.session,
+    parsed.timeoutMs,
   );
   const toolsStr = parsed.tools ? ` (${parsed.tools.join(", ")})` : "";
   const descStr = parsed.description ? ` - ${parsed.description}` : "";
