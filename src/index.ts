@@ -47,7 +47,10 @@ async function getDelegateCompletions(prefix: string): Promise<AutocompleteItem[
   const seen = new Set<string>();
   return candidates
     .filter((value) => value.startsWith(partial) && !seen.has(value) && seen.add(value))
-    .map((value) => ({ value, label: value }));
+    .map((value) => ({
+      value: subcommand ? `${subcommand} ${value}` : value,
+      label: value,
+    }));
 }
 
 /** Widgets set by /delegate subcommands that should clear on the next prompt. */
@@ -87,15 +90,17 @@ export default function (pi: ExtensionAPI) {
         "Returns the sub-agent's response and usage statistics.",
         "Pass a threadId to retain conversation memory across follow-up calls;",
         "the tool returns the active threadId so you can reuse it.",
+        "Discover available agents and their capabilities via /delegate list.",
       ].join(" "),
       promptSnippet:
-        "Delegate tasks to registered agents (charlie, image-bot, researcher, etc.)",
+        "Offload subtasks to specialized sub-agents. Discover capabilities via /delegate list.",
       promptGuidelines: [
-        "Use delegate when the user asks to 'ask [agent name]' or 'have [agent name] do something'",
-        "delegate runs an isolated agent session and returns the result",
-        "Available agents are listed in /delegate list",
-        "Use delegate to offload tasks to specialized/cheaper models while keeping main context",
-        "For follow-ups, reuse the threadId returned by a previous delegate call so the sub-agent keeps memory",
+        "Use delegate proactively: if a task has mixed domains (e.g. code + image), delegate one part to a sub-agent while you handle the other.",
+        "Discover sub-agent capabilities by running /delegate list (via bash). Each agent has a description field explaining what it can do.",
+        "Delegate to offload heavy or specialized work (research, image gen, web access) to cheaper or more capable models while keeping your context free.",
+        "When user says 'ask [agent name]' or 'have [agent name] do something', delegate immediately.",
+        "For follow-ups, reuse the threadId returned by a previous call so the sub-agent keeps memory.",
+        "Typical agents: image-bot (image generation), researcher (deep research), charlie (code), etc. Check /delegate list for actual registered agents.",
       ],
       parameters: delegateParamsSchema,
       execute: executeDelegateTool,
