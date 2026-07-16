@@ -5,8 +5,10 @@ import {
   getFinalOutput,
   getTextContent,
   formatUsageStats,
+  buildDelegateDescription,
 } from "../src/format.js";
 import type { UsageStats } from "../src/types.js";
+import type { AgentConfig } from "../src/agents.js";
 
 function assistant(text: string): Message {
   return {
@@ -76,6 +78,32 @@ test("formatUsageStats includes turns, tokens, cache, and cost", () => {
   assert.match(out, /↓/); // output arrow
   assert.match(out, /\$0\.0123/);
   assert.match(out, /claude/);
+});
+
+test("buildDelegateDescription includes agent names, models, and descriptions", () => {
+  const agents: AgentConfig[] = [
+    { name: "sugar", model: "deepseek/deepseek-v4-flash", description: "Cheap free model with web access" },
+    { name: "coder", model: "claude-sonnet-4-20250514" },
+  ];
+  const desc = buildDelegateDescription(agents);
+  assert.match(desc, /sugar \(deepseek\/deepseek-v4-flash\)/);
+  assert.match(desc, /Cheap free model with web access/);
+  assert.match(desc, /coder \(claude-sonnet-4-20250514\)/);
+  assert.match(desc, /Available agents/);
+  // agent without description still appears
+  assert.match(desc, /coder/);
+});
+
+test("buildDelegateDescription handles empty agent list", () => {
+  const desc = buildDelegateDescription([]);
+  assert.match(desc, /No agents registered yet/);
+  assert.match(desc, /delegate add/);
+});
+
+test("buildDelegateDescription base text is always present", () => {
+  const desc = buildDelegateDescription([]);
+  assert.match(desc, /Delegate a task to a registered sub-agent/);
+  assert.match(desc, /threadId/);
 });
 
 test("formatUsageStats omits zero fields", () => {

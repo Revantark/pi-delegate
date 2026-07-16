@@ -2,6 +2,35 @@ import type { Message } from "@earendil-works/pi-ai";
 import type { DelegateResult, UsageStats } from "./types.js";
 import type { AgentConfig } from "./agents.js";
 
+/**
+ * Build a dynamic delegate tool description that embeds registered agent
+ * names, models, and descriptions so the LLM knows what sub-agents are
+ * available without having to run /delegate list first.
+ */
+export function buildDelegateDescription(agents: AgentConfig[]): string {
+  const lines = [
+    "Delegate a task to a registered sub-agent running a different model.",
+    "Sub-agent runs in isolation with its own context window and tool restrictions.",
+    "Returns the sub-agent's response and usage statistics.",
+    "Pass a threadId to retain conversation memory across follow-up calls;",
+    "the tool returns the active threadId so you can reuse it.",
+  ];
+
+  if (agents.length > 0) {
+    lines.push("");
+    lines.push("Available agents:");
+    for (const a of agents) {
+      const desc = a.description ? ` \u2014 ${a.description}` : "";
+      lines.push(`- ${a.name} (${a.model})${desc}`);
+    }
+  } else {
+    lines.push("");
+    lines.push("No agents registered yet. Use /delegate add to create one.");
+  }
+
+  return lines.join(" ");
+}
+
 export function formatAgentList(agents: AgentConfig[]): string {
   return [
     "Registered agents:",
