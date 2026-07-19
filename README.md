@@ -31,20 +31,22 @@ The extension adds:
 
 ## Install
 
-This is a Pi extension. Register it in your Pi config (or drop it under your
-extensions directory) and point at `index.ts`:
+```bash
+# install from git
+pi install git:github.com/Revantark/pi-delegate
 
-```jsonc
-// package.json (already set in this repo)
-{
-  "pi": { "extensions": ["./index.ts"] }
-}
+# pin a tag/commit
+pi install git:github.com/Revantark/pi-delegate@v1.0.0
+
+# local checkout (dev)
+pi install /path/to/pi-delegate
+
+# one-shot without writing settings
+pi -e git:github.com/Revantark/pi-delegate
 ```
 
-No build step needed — Pi loads `index.ts` directly. Peer deps
-(resolved by Pi itself): `@earendil-works/pi-ai`,
-`@earendil-works/pi-coding-agent`, `typebox`. `@types/node` is a dev-only
-dependency.
+No build step — Pi loads `index.ts` directly. Peer deps (provided by Pi):
+`@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, `typebox`.
 
 ---
 

@@ -1,13 +1,39 @@
 {
   "name": "pi-delegate",
   "version": "1.0.0",
+  "description": "Delegate tasks to isolated Pi sub-agents with separate models, tools, and threads",
+  "license": "MIT",
+  "author": "Revantark",
   "type": "module",
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "files": [
+    "index.ts",
+    "src/**/*.ts",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "pi-package",
-    "pi-extension"
+    "pi-extension",
+    "subagent",
+    "delegate",
+    "pi-coding-agent"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Revantark/pi-delegate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Revantark/pi-delegate/issues"
+  },
+  "homepage": "https://github.com/Revantark/pi-delegate#readme",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
