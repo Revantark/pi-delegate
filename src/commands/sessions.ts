@@ -43,11 +43,9 @@ export async function handleThreads(
       return `\u2022 ${t.agent} / ${display}  (last ${t.lastUsed})`;
     });
   const output = ["Delegate threads:", ...lines].join("\n");
-  if (ctx.mode === "tui") {
-    ctx.ui.setWidget("delegate-threads", ["Delegate threads:", ...lines]);
-  } else {
-    ctx.ui.notify(output, "info");
-  }
+  // Notify goes to chat scrollback so it scrolls away; a widget would stick
+  // above the editor until the next turn.
+  ctx.ui.notify(output, "info");
 }
 
 export async function handleClose(

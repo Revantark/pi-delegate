@@ -54,25 +54,11 @@ async function getDelegateCompletions(prefix: string): Promise<AutocompleteItem[
     }));
 }
 
-/** Widgets set by /delegate subcommands that should clear on the next prompt. */
-export const DELEGATE_WIDGET_KEYS = [
-  "delegate-list",
-  "delegate-threads",
-  "delegate-help",
-] as const;
-
 export default function (pi: ExtensionAPI) {
   // Prevent recursive delegation — child skips registering delegate tool/command.
   if (process.env.PI_DELEGATE_CHILD === "1") {
     return;
   }
-  // Clear transient info widgets when the user starts a new turn so they don't
-  // stick to the bottom of the TUI forever.
-  pi.on("turn_start", (_event, ctx) => {
-    for (const key of DELEGATE_WIDGET_KEYS) {
-      ctx.ui.setWidget(key, undefined);
-    }
-  });
 
   pi.registerCommand("delegate", {
     description: "Manage delegate agents (add, remove, list, edit)",

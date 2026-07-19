@@ -28,12 +28,9 @@ async function handleHelp(ctx: ExtensionCommandContext): Promise<void> {
     "  /delegate prune [--older <days>|--all]",
     "  /delegate help",
   ];
-  // Widgets are TUI-only; in other modes surface the text via a notification.
-  if (ctx.mode === "tui") {
-    ctx.ui.setWidget("delegate-help", lines);
-  } else {
-    ctx.ui.notify(lines.join("\n"), "info");
-  }
+  // Notify goes to chat scrollback so it scrolls away; a widget would stick
+  // above the editor until the next turn.
+  ctx.ui.notify(lines.join("\n"), "info");
 }
 
 export async function handleDelegateCommand(

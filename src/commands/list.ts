@@ -14,11 +14,7 @@ export async function handleList(
     return;
   }
   const output = formatAgentList(agents);
-  // Widgets are TUI-only; in json/print/rpc modes fall back to a notification
-  // so the command is not silently a no-op.
-  if (ctx.mode === "tui") {
-    ctx.ui.setWidget("delegate-list", output.split("\n"));
-  } else {
-    ctx.ui.notify(output, "info");
-  }
+  // Notify goes to chat scrollback so it scrolls away; a widget would stick
+  // above the editor until the next turn.
+  ctx.ui.notify(output, "info");
 }
