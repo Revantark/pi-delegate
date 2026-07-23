@@ -17,7 +17,10 @@ Parameters:
 - `agent` (string, required) — registered agent name.
 - `task` (string, required) — what to delegate.
 - `threadId` (string, optional) — reuse to keep sub-agent memory across calls.
-  Omit → default per-agent thread.
+  Omit → fresh unique thread per call (parallel by default), unless the agent
+  sets `defaultThread: "shared"` (legacy: shared per-agent thread, serialized).
+- `timeoutMs` (number, optional) — per-call max child runtime, 2h cap.
+  Overrides the agent's configured `timeoutMs`.
 
 Returns sub-agent answer + usage stats. Unknown agent → error listing available.
 
@@ -25,7 +28,7 @@ Returns sub-agent answer + usage stats. Unknown agent → error listing availabl
 
 | Subcommand | Usage |
 |------------|-------|
-| `add` | `add <name> --model <m> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--description "d"]` |
+| `add` | `add <name> --model <m> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--default-thread <unique\|shared>] [--description "d"]` |
 | `remove` | `remove <name>` |
 | `list` | `list` |
 | `edit` | `edit <name>` (opens JSON editor) |
@@ -46,6 +49,9 @@ Stored in `~/.pi/delegate-agents.json`:
 - `extensions?` — extra extension paths
 - `noAutoExtensions?` — disable auto-loaded extensions (child runs `--no-extensions`)
 - `session?` — false = ephemeral (no thread memory)
+- `timeoutMs?` — default max child runtime per call
+- `defaultThread?` — `"unique"` (default) = omitted threadId → fresh parallel
+  thread per call; `"shared"` = legacy shared per-agent thread
 - `description?`
 
 ## State files (`~/.pi`)
@@ -60,8 +66,11 @@ Child process gets its own `--model`, `--tools` allowlist, and
 `--no-extensions`/explicit `--extension` set → delegated agents cannot re-invoke
 `delegate`. `--tools`/`--no-extensions` is the real boundary; `sanitize.ts`
 strips tool names from the prompt as defense-in-depth. `signal` abort tree-kills
-the child. Per-`sessionId` in-process lock serializes writes
-(`src/locks.ts`/`src/store.ts`).
+the child. Per-`sessionId` lock serializes writes (`src/locks.ts`/`src/store.ts`);
+different sessionIds run in parallel. Lock waiting is abort-aware and the wait
+budget follows the call's `timeoutMs` (default 10 min), so a queued call on the
+same thread survives a long-running holder. In-process read-modify-write of the
+threads registry is serialized via `withRegistryLock` (`src/agents.ts`).
 
 ## Key source map
 

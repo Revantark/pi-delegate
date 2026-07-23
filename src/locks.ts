@@ -95,6 +95,8 @@ function reclaimIfStale(lockDir: string, metaPath: string): boolean {
 export interface SessionLockOptions {
   /** Maximum time to wait for the lock before giving up. Default 10s. */
   waitMs?: number;
+  /** Optional abort signal; if aborted while waiting, acquisition is cancelled. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -124,6 +126,10 @@ export async function withSessionFileLock<T>(
   let acquired = false;
 
   for (let i = 0; i < maxRetries; i++) {
+    if (opts.signal?.aborted) {
+      throw opts.signal.reason ??
+        new Error("Aborted while waiting for session lock");
+    }
     let created = false;
     try {
       fs.mkdirSync(lockDir, { recursive: false });
@@ -136,12 +142,20 @@ export async function withSessionFileLock<T>(
         // Metadata creation failed after directory creation. Do not recursively
         // remove it: another process may reclaim and replace this directory.
         // Stale recovery handles leftovers after initialization grace.
+        if (opts.signal?.aborted) {
+          throw opts.signal.reason ??
+            new Error("Aborted while waiting for session lock");
+        }
         await sleep(LOCK_RETRY_MS);
         continue;
       }
       if (e instanceof Error && (e as { code?: string }).code === "EEXIST") {
         if (reclaimIfStale(lockDir, metaPath)) {
           continue;
+        }
+        if (opts.signal?.aborted) {
+          throw opts.signal.reason ??
+            new Error("Aborted while waiting for session lock");
         }
         await sleep(LOCK_RETRY_MS);
         continue;

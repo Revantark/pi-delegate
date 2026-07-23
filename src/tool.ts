@@ -7,7 +7,14 @@ import {
   type AgentToolUpdateCallback,
 } from "@earendil-works/pi-coding-agent";
 import { Type, type Static } from "typebox";
-import { getAgent, listAgents, loadThreads, upsertThread } from "./agents.js";
+import { randomUUID } from "node:crypto";
+import {
+  getAgent,
+  listAgents,
+  loadThreads,
+  upsertThread,
+  withRegistryLock,
+} from "./agents.js";
 import { sanitizeThreadId, sanitizeAgentName } from "./sanitize.js";
 import {
   formatUsageStats,
@@ -28,7 +35,13 @@ export const delegateParamsSchema = Type.Object({
   threadId: Type.Optional(
     Type.String({
       description:
-        "Conversation thread id. Reuse the same value across follow-up calls so the sub-agent keeps memory. Omit for a default per-agent thread.",
+        "Conversation thread id. Reuse the same value across follow-up calls so the sub-agent keeps memory. Omit to start a fresh parallel thread (unless the agent is configured with defaultThread: \"shared\"). Calls on the same thread are serialized; calls on different threads run in parallel.",
+    }),
+  ),
+  timeoutMs: Type.Optional(
+    Type.Number({
+      description:
+        "Maximum child runtime in milliseconds for this call. Overrides the agent's configured timeout. Choose based on expected task duration (e.g. 120000 for quick lookups, 2400000 for long research tasks).",
     }),
   ),
 });
@@ -52,7 +65,7 @@ export async function executeDelegateTool(
   onUpdate: AgentToolUpdateCallback<DelegateToolDetails> | undefined,
   ctx: ExtensionContext,
 ): Promise<AgentToolResult<DelegateToolDetails>> {
-  const { agent: agentName, task, threadId } = params;
+  const { agent: agentName, task, threadId, timeoutMs: timeoutParam } = params;
 
   const agent = getAgent(agentName);
   if (!agent) {
@@ -64,11 +77,28 @@ export async function executeDelegateTool(
     );
   }
 
+  // Per-call timeout: explicit param wins over the agent's configured
+  // timeout. Clamped to a hard 2h ceiling.
+  const MAX_TIMEOUT_MS = 7_200_000;
+  const effectiveTimeoutMs =
+    timeoutParam !== undefined && Number.isFinite(timeoutParam)
+      ? Math.min(Math.max(1, Math.floor(timeoutParam)), MAX_TIMEOUT_MS)
+      : agent.timeoutMs;
+  const effectiveAgent: typeof agent =
+    effectiveTimeoutMs !== agent.timeoutMs
+      ? { ...agent, timeoutMs: effectiveTimeoutMs }
+      : agent;
+
   const sessionEnabled = agent.session !== false;
+  // No explicit threadId: "shared" keeps the legacy per-agent default thread
+  // (calls serialize on one session); default "unique" gives every call its
+  // own session so parallel delegate calls never contend on the session lock.
   const effectiveThreadId =
     sessionEnabled && threadId && threadId.trim()
       ? sanitizeThreadId(threadId)
-      : agent.name;
+      : agent.defaultThread === "shared"
+        ? agent.name
+        : `${agent.name}-${randomUUID().slice(0, 8)}`;
   const safeAgent = sanitizeAgentName(agent.name);
   const sessionId = sessionEnabled
     ? `delegate-${safeAgent}-${effectiveThreadId}`
@@ -99,7 +129,7 @@ export async function executeDelegateTool(
   const run = () =>
     runDelegate(
       ctx.cwd,
-      agent,
+      effectiveAgent,
       task,
       sessionId,
       signal,
@@ -126,8 +156,15 @@ export async function executeDelegateTool(
           }
         : undefined,
     );
+  // Lock wait budget: no point outliving our own runtime deadline. Calls on
+  // the same thread still serialize (they share a session file), but a waiter
+  // now survives a long-running holder instead of dying after 10s, and Esc
+  // aborts the wait immediately.
   const result = sessionId
-    ? await withSessionFileLock(sessionId, run)
+    ? await withSessionFileLock(sessionId, run, {
+        waitMs: effectiveTimeoutMs ?? 600_000,
+        signal,
+      })
     : await run();
 
   if (isFailedResult(result)) {
@@ -135,18 +172,22 @@ export async function executeDelegateTool(
     throw new Error(`Agent ${result.stopReason || "failed"}: ${errorMsg}`);
   }
 
+  // Read-modify-write of the threads registry, serialized in-process so
+  // parallel delegate completions cannot clobber each other's records.
   if (sessionId) {
-    const threads = await loadThreads();
-    const now = new Date().toISOString();
-    const existing = threads[sessionId];
-    await upsertThread({
-      agent: agent.name,
-      threadId: effectiveThreadId,
-      sessionId,
-      sessionDir: SESSION_DIR,
-      created: existing?.created ?? now,
-      lastUsed: now,
-      userThreadId: threadId && threadId.trim() ? threadId.trim() : undefined,
+    await withRegistryLock(async () => {
+      const threads = await loadThreads();
+      const now = new Date().toISOString();
+      const existing = threads[sessionId];
+      await upsertThread({
+        agent: agent.name,
+        threadId: effectiveThreadId,
+        sessionId,
+        sessionDir: SESSION_DIR,
+        created: existing?.created ?? now,
+        lastUsed: now,
+        userThreadId: threadId && threadId.trim() ? threadId.trim() : undefined,
+      });
     });
   }
 

@@ -11,6 +11,14 @@ export interface AgentConfig {
   session?: boolean;
   /** Maximum child runtime in milliseconds. Omit for no deadline. */
   timeoutMs?: number;
+  /**
+   * How to assign a thread id when the caller omits `threadId`.
+   * - `"unique"` (default): each delegate call without an explicit threadId
+   *   gets its own fresh session thread, so calls run in parallel.
+   * - `"shared"`: legacy behavior; calls without threadId share one
+   *   per-agent thread and are serialized.
+   */
+  defaultThread?: "unique" | "shared";
 }
 
 const CONFIG_PATH = AGENTS_PATH;
@@ -40,7 +48,10 @@ export function isValidAgentConfig(value: unknown): value is AgentConfig {
     (agent.session === undefined || typeof agent.session === "boolean") &&
     (agent.timeoutMs === undefined ||
       (typeof agent.timeoutMs === "number" &&
-        Number.isInteger(agent.timeoutMs) && agent.timeoutMs > 0))
+        Number.isInteger(agent.timeoutMs) && agent.timeoutMs > 0)) &&
+    (agent.defaultThread === undefined ||
+      agent.defaultThread === "unique" ||
+      agent.defaultThread === "shared")
   );
 }
 
@@ -78,6 +89,7 @@ export async function addAgent(
   noAutoExtensions?: boolean,
   session?: boolean,
   timeoutMs?: number,
+  defaultThread?: "unique" | "shared",
 ): Promise<AgentConfig> {
   const result = await modifyFile<Record<string, AgentConfig>>(CONFIG_PATH, (agents) => {
     const agent: AgentConfig = { name, model };
@@ -87,6 +99,7 @@ export async function addAgent(
     if (noAutoExtensions !== undefined) agent.noAutoExtensions = noAutoExtensions;
     if (session !== undefined) agent.session = session;
     if (timeoutMs !== undefined) agent.timeoutMs = timeoutMs;
+    if (defaultThread !== undefined) agent.defaultThread = defaultThread;
     if (!isValidAgentConfig(agent)) throw new Error(`Invalid agent configuration for "${name}"`);
     validateAgentRegistry(agents);
     agents[name] = agent;
@@ -245,4 +258,26 @@ export async function removeThread(sessionId: string): Promise<void> {
     delete threads[sessionId];
     return threads;
   }, STATE_ROOT);
+}
+
+// Process-local async mutex for serializing read-modify-write sequences on
+// the threads registry file (`delegate-threads.json`) within this process.
+// Cross-process races between separate Pi processes are out of scope — the
+// per-file `modifyFile`/`saveAtomically` locks in store.ts already protect
+// individual writes; this mutex only makes a multi-step load→modify→upsert
+// sequence atomic relative to other in-process callers.
+let registryLock: Promise<void> = Promise.resolve();
+
+export async function withRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = registryLock;
+  let release!: () => void;
+  registryLock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await prev;
+  try {
+    return await fn();
+  } finally {
+    release();
+  }
 }

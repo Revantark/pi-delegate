@@ -10,7 +10,7 @@ export async function handleAdd(
   const parsed = parseAddArgs(args);
   if (!parsed) {
     ctx.ui.notify(
-      'Usage: /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--description "desc"]',
+      'Usage: /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--default-thread <unique|shared>] [--description "desc"]',
       "error",
     );
     return;
@@ -31,6 +31,7 @@ export async function handleAdd(
     parsed.noAutoExtensions,
     parsed.session,
     parsed.timeoutMs,
+    parsed.defaultThread,
   );
   const toolsStr = parsed.tools ? ` (${parsed.tools.join(", ")})` : "";
   const descStr = parsed.description ? ` - ${parsed.description}` : "";
@@ -40,8 +41,14 @@ export async function handleAdd(
   const noAuto = parsed.noAutoExtensions ? " (auto-extensions disabled)" : "";
   const sessStr =
     parsed.session === false ? " (ephemeral)" : " (session memory on)";
+  const dtStr =
+    parsed.defaultThread === "shared"
+      ? " (default-thread: shared)"
+      : parsed.defaultThread === "unique"
+        ? " (default-thread: unique)"
+        : "";
   ctx.ui.notify(
-    `Agent "${parsed.name}" registered with model ${parsed.model}${toolsStr}${extStr}${noAuto}${sessStr}${descStr}`,
+    `Agent "${parsed.name}" registered with model ${parsed.model}${toolsStr}${extStr}${noAuto}${sessStr}${dtStr}${descStr}`,
     "info",
   );
 }

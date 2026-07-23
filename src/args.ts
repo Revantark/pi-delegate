@@ -122,6 +122,7 @@ export function parseAddArgs(
   noAutoExtensions?: boolean;
   session?: boolean;
   timeoutMs?: number;
+  defaultThread?: "unique" | "shared";
 } | null {
   const { positional, opts, flags } = parseFlagTokens(args);
   if (positional.length === 0) return null;
@@ -150,6 +151,15 @@ export function parseAddArgs(
     return null;
   }
 
+  const defaultThreadRaw = opts.get("default-thread");
+  let defaultThread: "unique" | "shared" | undefined;
+  if (defaultThreadRaw !== undefined) {
+    if (defaultThreadRaw !== "unique" && defaultThreadRaw !== "shared") {
+      return null;
+    }
+    defaultThread = defaultThreadRaw;
+  }
+
   return {
     name,
     model,
@@ -159,6 +169,7 @@ export function parseAddArgs(
     noAutoExtensions: flags.has("--no-extensions") || undefined,
     session: flags.has("--no-session") ? false : undefined,
     ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    ...(defaultThread !== undefined ? { defaultThread } : {}),
   };
 }
 

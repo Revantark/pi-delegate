@@ -89,7 +89,8 @@ automatically when you say "ask X", "have X do Y", or delegate explicitly.
 ```text
 /delegate add <name> --model <model> \
   [--tools t1,t2] [--extensions e1,e2] \
-  [--no-extensions] [--no-session] [--description "desc"]
+  [--no-extensions] [--no-session] [--timeout <ms>] \
+  [--default-thread <unique|shared>] [--description "desc"]
 ```
 
 | Flag | Effect |
@@ -99,6 +100,8 @@ automatically when you say "ask X", "have X do Y", or delegate explicitly.
 | `--extensions e1,e2` | Extra extension paths to load in the child. |
 | `--no-extensions` | Disable auto-loaded extensions (`--no-extensions` in child). |
 | `--no-session` | `session: false` → ephemeral, no memory/transcripts. |
+| `--timeout <ms>` | Default max child runtime per call (overridable per call via the tool's `timeoutMs`). |
+| `--default-thread <mode>` | `unique` (default): calls without `threadId` each get a fresh parallel thread. `shared`: legacy — they share one per-agent thread and serialize. |
 | `--description "d"` | Human note; also shown in `/delegate list`. |
 
 Agent names must match `^[a-zA-Z0-9_-]{1,64}$` (validated on add/edit).
@@ -171,7 +174,8 @@ The LLM calls this — not you (though you can prompt it to). Schema:
 delegate({
   agent:   string,             // required — registered agent name
   task:    string,             // required — what to delegate
-  threadId?: string,           // optional — reuse to keep memory
+  threadId?: string,           // optional — reuse to keep memory; omit for a fresh parallel thread
+  timeoutMs?: number,          // optional — per-call max runtime (ms), 2h cap; overrides agent default
 })
 ```
 
@@ -187,9 +191,12 @@ Behavior:
 
 ## Sessions & Threads
 
-- **Stateful (default):** omit `threadId` → a default per-agent thread is used
-  (`delegate-<agent>-<name>`). Pass your own `threadId` to branch or label a
-  conversation.
+- **Stateful (default):** omit `threadId` → each call gets its own fresh
+  thread (`delegate-<agent>-<random>`), so parallel calls never block each
+  other. Pass your own `threadId` to branch or label a conversation — or to
+  continue one (the id is returned in every result). Agents registered with
+  `--default-thread shared` keep the legacy behavior: omitted `threadId`
+  reuses one per-agent thread and calls serialize on it.
 - **Memory:** reuse the same `threadId` across calls → the sub-agent remembers
   prior context.
 - **Ephemeral:** agent registered with `--no-session` → `threadId` is ignored,
@@ -213,7 +220,9 @@ Each child gets its **own** `--model`, a `--tools` allowlist, and an explicit
   sanitized (tool names stripped) as defense-in-depth.
 - An `AbortSignal` tree-kills the child process if the call is cancelled.
 - A per-`sessionId` lock serializes writes so concurrent delegations don't
-  clobber state.
+  clobber state. Waiting for the lock is abort-aware (Esc cancels instantly)
+  and the wait budget follows the call's timeout (`timeoutMs`, default 10 min)
+  instead of a fixed 10s — a queued call survives a long-running holder.
 
 ---
 
@@ -271,7 +280,10 @@ the `delegate` tool on its own.
 - **Ephemeral agents ignore `threadId`.** Don't expect memory from a
   `--no-session` agent.
 - **Locks serialize per thread.** Two delegations to the *same* thread run one
-  after the other; different threads run in parallel.
+  after the other; different threads run in parallel. Since omitted `threadId`
+  now creates a fresh thread per call (unless the agent uses
+  `defaultThread: "shared"`), parallel fan-out is the default. Auto-generated
+  threads accumulate — run `/delegate prune` periodically.
 - **Output is truncated.** Long answers get a `[Output truncated: …]` note.
   Increase `DEFAULT_MAX_*` in `src/tool.ts` if you need more.
 - **Edit after model change?** Run `/delegate reset <name>` so old transcripts

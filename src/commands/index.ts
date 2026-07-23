@@ -15,7 +15,7 @@ import { parseArgs } from "../args.js";
 async function handleHelp(ctx: ExtensionCommandContext): Promise<void> {
   const lines = [
     "Delegate commands:",
-    "  /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--description \"desc\"]",
+    "  /delegate add <name> --model <model> [--tools t1,t2] [--extensions e1,e2] [--no-extensions] [--no-session] [--timeout <ms>] [--default-thread <unique|shared>] [--description \"desc\"]",
     "  /delegate remove <name> [--purge]",
     "  /delegate list",
     "  /delegate edit <name>",

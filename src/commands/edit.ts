@@ -35,6 +35,9 @@ export async function handleEdit(
     ...(agent.noAutoExtensions && { noAutoExtensions: agent.noAutoExtensions }),
     ...(agent.session !== undefined && { session: agent.session }),
     ...(agent.timeoutMs !== undefined && { timeoutMs: agent.timeoutMs }),
+    ...(agent.defaultThread !== undefined && {
+      defaultThread: agent.defaultThread,
+    }),
     ...(agent.description && { description: agent.description }),
   };
   const initialJson = JSON.stringify(config, null, 2);
@@ -91,6 +94,14 @@ export async function handleEdit(
     ctx.ui.notify("'timeoutMs' must be a positive integer", "error");
     return;
   }
+  if (
+    candidate.defaultThread !== undefined &&
+    candidate.defaultThread !== "unique" &&
+    candidate.defaultThread !== "shared"
+  ) {
+    ctx.ui.notify("'defaultThread' must be 'unique' or 'shared'", "error");
+    return;
+  }
 
   try {
     sanitizeAgentName(candidate.name);
@@ -110,6 +121,9 @@ export async function handleEdit(
     }),
     ...(candidate.session !== undefined && { session: candidate.session as boolean }),
     ...(candidate.timeoutMs !== undefined && { timeoutMs: candidate.timeoutMs as number }),
+    ...(candidate.defaultThread !== undefined && {
+      defaultThread: candidate.defaultThread as "unique" | "shared",
+    }),
     ...(candidate.description !== undefined && { description: candidate.description as string }),
   };
 
